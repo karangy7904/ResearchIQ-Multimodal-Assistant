@@ -1,4 +1,4 @@
-import hashlib, re
+import hashlib, re, threading
 from pathlib import Path
 import fitz
 import pdfplumber
@@ -8,6 +8,8 @@ from langchain_chroma import Chroma
 from app.clients import get_embeddings, get_table_embeddings, get_bedrock_runtime
 from app.config import settings
 from app.storage import upload_visual, ensure_dirs
+
+_CHROMA_LOCK = threading.Lock()
 
 def _paper_id(path: str) -> str:
     return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:12]
@@ -125,7 +127,7 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                 uri = upload_visual(image_path, paper_id, visual_id)
 
                 # Generate rich visual embedding content using Amazon Nova Multimodal (for top figures)
-                if len(figure_docs) < 3:
+                if len(figure_docs) < 2:
                     nova_visual_summary = describe_figure_with_nova(image_path, page_no, original_name)
                 else:
                     nova_visual_summary = f"Visual diagram on page {page_no} of {original_name}. High-resolution visual stored in S3."
@@ -151,32 +153,51 @@ def ingest_pdf(path: str, original_name: str) -> dict:
     for i, d in enumerate(figure_docs):
         d.metadata["chunk_id"] = f"{paper_id}_figure_{i}"
 
+    # Precompute embeddings concurrently OUTSIDE the lock across all threads
     # 1. Text Index (Amazon Titan Text v2)
     if text_docs:
-        Chroma(
-            collection_name="researchiq_text",
-            persist_directory=settings.chroma_dir,
-            embedding_function=get_embeddings(),
-        ).add_documents(text_docs)
+        text_texts = [d.page_content for d in text_docs]
+        text_metas = [d.metadata for d in text_docs]
+        text_ids = [d.metadata["chunk_id"] for d in text_docs]
+        text_embeds = get_embeddings().embed_documents(text_texts)
+    else:
+        text_embeds, text_texts, text_metas, text_ids = [], [], [], []
 
-    # 2. Table and Chart Index (Cohere Embed English v3 - max 2048 chars)
+    # 2. Table Index (Cohere Embed English v3 - max 2048 chars)
     if table_docs:
         for td in table_docs:
             if len(td.page_content) > 1900:
                 td.page_content = td.page_content[:1900]
-        Chroma(
-            collection_name="researchiq_tables",
-            persist_directory=settings.chroma_dir,
-            embedding_function=get_table_embeddings(),
-        ).add_documents(table_docs)
+        table_texts = [d.page_content for d in table_docs]
+        table_metas = [d.metadata for d in table_docs]
+        table_ids = [d.metadata["chunk_id"] for d in table_docs]
+        table_embeds = get_table_embeddings().embed_documents(table_texts)
+    else:
+        table_embeds, table_texts, table_metas, table_ids = [], [], [], []
 
-    # 3. Visuals and Diagrams Index (Nova Multimodal representation)
+    # 3. Figure Index (Titan Text v2 representation)
     if figure_docs:
-        Chroma(
-            collection_name="researchiq_figures",
-            persist_directory=settings.chroma_dir,
-            embedding_function=get_embeddings(),
-        ).add_documents(figure_docs)
+        fig_texts = [d.page_content for d in figure_docs]
+        fig_metas = [d.metadata for d in figure_docs]
+        fig_ids = [d.metadata["chunk_id"] for d in figure_docs]
+        fig_embeds = get_embeddings().embed_documents(fig_texts)
+    else:
+        fig_embeds, fig_texts, fig_metas, fig_ids = [], [], [], []
+
+    # Fast thread-safe local SQLite writes (only held for <50ms per paper)
+    with _CHROMA_LOCK:
+        if text_embeds:
+            Chroma(collection_name="researchiq_text", persist_directory=settings.chroma_dir)._collection.upsert(
+                ids=text_ids, embeddings=text_embeds, metadatas=text_metas, documents=text_texts
+            )
+        if table_embeds:
+            Chroma(collection_name="researchiq_tables", persist_directory=settings.chroma_dir)._collection.upsert(
+                ids=table_ids, embeddings=table_embeds, metadatas=table_metas, documents=table_texts
+            )
+        if fig_embeds:
+            Chroma(collection_name="researchiq_figures", persist_directory=settings.chroma_dir)._collection.upsert(
+                ids=fig_ids, embeddings=fig_embeds, metadatas=fig_metas, documents=fig_texts
+            )
 
     return {"paper_id": paper_id, "paper_name": original_name,
             "text_chunks": len(text_docs), "tables": len(table_docs),

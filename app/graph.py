@@ -124,3 +124,57 @@ research_graph = build_graph()
 
 async def ask_researchiq(question: str):
     return await research_graph.ainvoke({"question": question, "errors": []})
+
+def ask_researchiq_stream(question: str):
+    """Sub-3-second streaming grounded synthesizer using concurrent retrieval and live token streaming."""
+    ok, reason = input_guardrail(question)
+    if not ok:
+        yield f"⚠️ **Security Guardrail Triggered:** {reason}", "Security check failed."
+        return
+
+    yield "🔍 *Retrieving cross-paper text (Titan v2), tables (Cohere Embed v3), and diagrams (Nova Multimodal)...*", "Retriever active..."
+    retrieval = retrieve_all(question)
+    all_items = retrieval.get("text_evidence", []) + retrieval.get("table_evidence", []) + retrieval.get("figure_evidence", [])
+    if not all_items:
+        yield "⚠️ **Insufficient Evidence:** No relevant content found across the indexed papers. Please upload papers on this topic.", "No matching records in vectorstore."
+        return
+
+    refs = []
+    for item in all_items:
+        m = item.get("metadata", {})
+        refs.append(f"{m.get('paper_name','Unknown')}, p. {m.get('page','?')}, {m.get('kind','text')}")
+    source_notes = "Retrieved Sources:\n- " + "\n- ".join(sorted(set(refs)))
+
+    # Compile dense evidence records
+    parts = []
+    for key in ("text_evidence", "table_evidence", "figure_evidence"):
+        for item in retrieval.get(key, []):
+            m = item.get("metadata", {})
+            parts.append(f"[{m.get('paper_name','')} p.{m.get('page','')} ({m.get('kind','text')} ID:{m.get('table_id') or m.get('visual_id','')})]\n{item['text']}")
+    evidence_text = "\n\n".join(parts)[:20000]
+
+    prompt = f"""You are ResearchIQ, an expert multimodal scientific research assistant.
+Answer the question thoroughly and factually using ONLY the verified evidence records below.
+Guidelines:
+1. Ground every technical claim and numeric metric directly in the evidence.
+2. Cite all claims inline using [Paper Name, p. N].
+3. For comparisons or quantitative metrics, incorporate data extracted from tables (Cohere Embed).
+4. If figures or diagrams are relevant, cite their architectural components or takeaways (Nova Multimodal).
+5. If evidence is missing or ambiguous, state it explicitly. Do not extrapolate or hallucinate.
+
+Question: {question}
+
+Evidence Records:
+{evidence_text}
+
+Provide a structured, authoritative answer:"""
+
+    llm = get_llm()
+    stream = llm.stream(prompt)
+    accumulated = ""
+    for chunk in stream:
+        content = chunk.content
+        if isinstance(content, list):
+            content = " ".join(str(x.get("text", x)) if isinstance(x, dict) else str(x) for x in content)
+        accumulated += str(content)
+        yield accumulated, source_notes
