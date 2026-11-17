@@ -293,7 +293,7 @@ python -m app.ui
 
 ---
 
-## 🏆 Hackathon Panel Highlights & Differentiators
+## 🏆 Highlights & Differentiators
 
 1. **Production-Ready & Fully Deployed**: Not a localhost-only prototype; live on AWS EC2 with automated CI/CD and production NGINX reverse-proxying.
 2. **True Multimodal Reasoning**: Actively extracts and reasons over diagrams, architecture flows, and tabular metrics using Amazon Nova Pro and Cohere Embed v3.
