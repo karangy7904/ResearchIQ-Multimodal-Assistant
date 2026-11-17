@@ -4,6 +4,8 @@
 
 ### *Enterprise-Grade Multimodal Synthesis, Multi-Agent Deliberation, and Zero-Retention Privacy for Complex Scientific Literature*
 
+**Team FINE-TUNED MIND**: **Vrindesh Pareek** &bull; **Karunesh G Y** &bull; **Kailash Choudhary** &bull; **Akshat Mishra**
+
 [![Live Demo](https://img.shields.io/badge/Live_Demo-AWS_EC2_Online-brightgreen?style=for-the-badge&logo=amazonaws)](http://32.236.81.253/researchiq/)
 [![API Swagger](https://img.shields.io/badge/API_Docs-Swagger_UI-blue?style=for-the-badge&logo=fastapi)](http://32.236.81.253/researchiq-api/docs)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-karangy7904/ResearchIQ--Multimodal--Assistant-181717?style=for-the-badge&logo=github)](https://github.com/karangy7904/ResearchIQ-Multimodal-Assistant)
@@ -303,7 +305,18 @@ python -m app.ui
 
 ---
 
+## 👥 Team FINE-TUNED MIND
+
+| Team Member | Role & Focus Areas |
+|---|---|
+| **Vrindesh Pareek** | Multi-Agent Systems, Consensus Modeling & Evaluation |
+| **Karunesh G Y** | Multimodal RAG, Cloud Architecture & Zero-Retention Security |
+| **Kailash Choudhary** | Ingestion Pipelines, Vector Indexing & Bedrock Integrations |
+| **Akshat Mishra** | Prompt Defense, Benchmarking & Frontend Streaming Architecture |
+
+---
+
 <div align="center">
   <b>Built for the Amazon Bedrock Multimodal AI Hackathon 🚀</b><br>
-  <i>Developed by Karunesh G Y &bull; <a href="https://github.com/karangy7904">GitHub</a></i>
+  <i>Developed with pride by Team FINE-TUNED MIND: <b>Vrindesh Pareek</b>, <b>Karunesh G Y</b>, <b>Kailash Choudhary</b>, <b>Akshat Mishra</b> &bull; <a href="https://github.com/karangy7904/ResearchIQ-Multimodal-Assistant">GitHub Repository</a></i>
 </div>
