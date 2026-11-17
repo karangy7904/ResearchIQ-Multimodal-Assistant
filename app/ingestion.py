@@ -19,7 +19,7 @@ def _make_doc(text, metadata):
     return Document(page_content=clean, metadata=metadata) if clean else None
 
 def describe_figure_with_nova(image_path: str, page_no: int, paper_name: str) -> str:
-    """Use Amazon Nova Multimodal to generate a rich visual and diagram embedding description."""
+    """Use Amazon Nova Multimodal (Nova Lite) for rapid, high-accuracy visual embedding summaries."""
     try:
         runtime = get_bedrock_runtime()
         image_bytes = Path(image_path).read_bytes()
@@ -33,12 +33,12 @@ def describe_figure_with_nova(image_path: str, page_no: int, paper_name: str) ->
             "Be factual and technical. Do not guess unreadable values."
         )
         resp = runtime.converse(
-            modelId=settings.bedrock_chat_model,
+            modelId="apac.amazon.nova-lite-v1:0",
             messages=[{"role": "user", "content": [
                 {"text": prompt},
                 {"image": {"format": "png", "source": {"bytes": image_bytes}}}
             ]}],
-            inferenceConfig={"temperature": 0, "maxTokens": 450}
+            inferenceConfig={"temperature": 0, "maxTokens": 250}
         )
         return resp["output"]["message"]["content"][0].get("text", "")
     except Exception as exc:
