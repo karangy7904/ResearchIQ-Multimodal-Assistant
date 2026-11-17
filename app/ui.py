@@ -114,4 +114,11 @@ with gr.Blocks(title="ResearchIQ — Multimodal Research Assistant") as demo:
         ask_btn.click(ask_handler, inputs=[question, mode], outputs=[answer, review])
 
 if __name__ == "__main__":
-    demo.queue(default_concurrency_limit=8).launch(server_name="0.0.0.0", server_port=7860)
+    import os
+    port = int(os.environ.get("GRADIO_PORT", 7860))
+    root_path = os.environ.get("GRADIO_ROOT_PATH", None)
+    demo.queue(default_concurrency_limit=8).launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        root_path=root_path
+    )

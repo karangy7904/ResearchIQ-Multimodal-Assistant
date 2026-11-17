@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  researchiq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/karangy7904/researchiq-multimodal-assistant:latest
+    container_name: researchiq-service
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+      - "${GRADIO_PORT:-7860}:7860"
+    environment:
+      - AWS_REGION=${AWS_REGION:-ap-southeast-2}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-southeast-2}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - S3_BUCKET=${S3_BUCKET:-firstrag}
+      - BEDROCK_CHAT_MODEL=${BEDROCK_CHAT_MODEL:-apac.amazon.nova-pro-v1:0}
+      - BEDROCK_EMBED_MODEL=${BEDROCK_EMBED_MODEL:-amazon.titan-embed-text-v2:0}
+      - BEDROCK_TABLE_EMBED_MODEL=${BEDROCK_TABLE_EMBED_MODEL:-cohere.embed-english-v3}
+    volumes:
+      - researchiq-data:/app/data
+
+volumes:
+  researchiq-data:
+    driver: local

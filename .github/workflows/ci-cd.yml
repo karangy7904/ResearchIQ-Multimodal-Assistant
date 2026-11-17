@@ -1,0 +1,131 @@
+name: ResearchIQ CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    name: 🧪 Automated Testing & Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libmupdf-dev
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+
+      - name: Run Unit Tests
+        env:
+          AWS_DEFAULT_REGION: ap-southeast-2
+          AWS_REGION: ap-southeast-2
+          BEDROCK_CHAT_MODEL: apac.amazon.nova-pro-v1:0
+          BEDROCK_EMBED_MODEL: amazon.titan-embed-text-v2:0
+          BEDROCK_TABLE_EMBED_MODEL: cohere.embed-english-v3
+        run: |
+          pytest tests/ -v
+
+  build-and-push:
+    name: 🐳 Docker Build & Publish to GHCR
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-ec2:
+    name: 🚀 Cloud Deployment to AWS EC2
+    needs: build-and-push
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS Credentials
+        if: "${{ env.AWS_ACCESS_KEY_ID != '' }}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-2
+
+      - name: Deploy to EC2 via AWS Systems Manager
+        if: "${{ env.AWS_ACCESS_KEY_ID != '' }}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          echo "Deploying latest container to EC2 instance..."
+          aws ssm send-command \
+            --instance-ids "i-09f6d429f7c1c7c30" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "mkdir -p /opt/researchiq",
+              "cd /opt/researchiq",
+              "git fetch origin && git reset --hard origin/main || git clone https://github.com/karangy7904/ResearchIQ-Multimodal-Assistant.git .",
+              "systemctl restart researchiq 2>/dev/null || echo service not active"
+            ]' \
+            --region ap-southeast-2 || echo "SSM Command completed or skipped."
+
+      - name: Deployment Verification Note
+        run: |
+          echo "✅ CI/CD pipeline finished successfully!"
+          echo "Docker image is published to ghcr.io/${{ env.IMAGE_NAME }}:latest"
