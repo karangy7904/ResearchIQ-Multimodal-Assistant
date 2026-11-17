@@ -60,9 +60,43 @@ def ingest_pdf(path: str, original_name: str) -> dict:
         try:
             tabs = page.find_tables()
             for table_idx, tab in enumerate(tabs, start=1):
-                rows = [" | ".join(str(c or "") for c in row) for row in tab.extract()]
+                raw_rows = tab.extract()
+                if not raw_rows:
+                    continue
+                rows = [" | ".join(str(c or "") for c in row) for row in raw_rows]
                 content = "\n".join(rows).strip()
-                if content:
+                if not content:
+                    continue
+
+                # Cohere Embed v3 enforces a strict 2048 character limit per document.
+                # If table is large, chunk it by rows while preserving table header context.
+                if len(content) > 1800:
+                    header = rows[0] if rows else ""
+                    current_chunk = [f"Extracted Table {table_idx} (Page {page_no}, {original_name}) [Header: {header}]:"]
+                    current_len = len(current_chunk[0])
+                    for row in rows:
+                        if current_len + len(row) + 1 > 1800:
+                            table_docs.append(Document(
+                                page_content="\n".join(current_chunk)[:1900],
+                                metadata={"paper_id": paper_id, "paper_name": original_name,
+                                          "page": page_no, "kind": "table",
+                                          "table_id": f"p{page_no}_table{table_idx}",
+                                          "source": original_name}
+                            ))
+                            current_chunk = [f"Extracted Table {table_idx} cont. (Page {page_no}, {original_name}) [Header: {header}]:", row]
+                            current_len = sum(len(x) for x in current_chunk) + len(current_chunk)
+                        else:
+                            current_chunk.append(row)
+                            current_len += len(row) + 1
+                    if len(current_chunk) > 1:
+                        table_docs.append(Document(
+                            page_content="\n".join(current_chunk)[:1900],
+                            metadata={"paper_id": paper_id, "paper_name": original_name,
+                                      "page": page_no, "kind": "table",
+                                      "table_id": f"p{page_no}_table{table_idx}",
+                                      "source": original_name}
+                        ))
+                else:
                     table_docs.append(Document(
                         page_content=f"Extracted Table {table_idx} (Page {page_no}, {original_name}):\n{content}",
                         metadata={"paper_id": paper_id, "paper_name": original_name,
@@ -90,8 +124,11 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                 pix.save(image_path)
                 uri = upload_visual(image_path, paper_id, visual_id)
 
-                # Generate rich visual embedding content using Amazon Nova Multimodal
-                nova_visual_summary = describe_figure_with_nova(image_path, page_no, original_name)
+                # Generate rich visual embedding content using Amazon Nova Multimodal (for top figures)
+                if len(figure_docs) < 3:
+                    nova_visual_summary = describe_figure_with_nova(image_path, page_no, original_name)
+                else:
+                    nova_visual_summary = f"Visual diagram on page {page_no} of {original_name}. High-resolution visual stored in S3."
                 
                 figure_docs.append(Document(
                     page_content=(
@@ -122,8 +159,11 @@ def ingest_pdf(path: str, original_name: str) -> dict:
             embedding_function=get_embeddings(),
         ).add_documents(text_docs)
 
-    # 2. Table and Chart Index (Cohere Embed English v3)
+    # 2. Table and Chart Index (Cohere Embed English v3 - max 2048 chars)
     if table_docs:
+        for td in table_docs:
+            if len(td.page_content) > 1900:
+                td.page_content = td.page_content[:1900]
         Chroma(
             collection_name="researchiq_tables",
             persist_directory=settings.chroma_dir,
