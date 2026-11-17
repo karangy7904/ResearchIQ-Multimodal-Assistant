@@ -17,11 +17,8 @@ def save_upload(file_bytes: bytes, filename: str, paper_id: str) -> str:
     return str(local_path)
 
 def upload_visual(local_path: str, paper_id: str, visual_id: str) -> str:
-    if not settings.s3_bucket:
-        return local_path
-    key = f"visuals/{paper_id}/{visual_id}.png"
-    get_s3().upload_file(local_path, settings.s3_bucket, key)
-    return f"s3://{settings.s3_bucket}/{key}"
+    """Store visual diagram locally without uploading to S3 (only original PDFs go to S3)."""
+    return local_path
 
 def download_s3_uri(uri: str) -> str:
     if not uri.startswith("s3://"):

@@ -126,17 +126,14 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                 pix.save(image_path)
                 uri = upload_visual(image_path, paper_id, visual_id)
 
-                # Generate rich visual embedding content using Amazon Nova Multimodal (for top figures)
-                if len(figure_docs) < 2:
-                    nova_visual_summary = describe_figure_with_nova(image_path, page_no, original_name)
-                else:
-                    nova_visual_summary = f"Visual diagram on page {page_no} of {original_name}. High-resolution visual stored in S3."
+                # High-speed local indexing: store visual provenance without blocking on cloud vision
+                visual_summary = (
+                    f"Figure/Diagram on page {page_no} of {original_name} (Visual ID: {visual_id}). "
+                    f"Multimodal architecture/data diagram available locally for visual inspection."
+                )
                 
                 figure_docs.append(Document(
-                    page_content=(
-                        f"Figure/Diagram on page {page_no} of {original_name} (Visual ID: {visual_id}):\n"
-                        f"{nova_visual_summary}"
-                    ),
+                    page_content=visual_summary,
                     metadata={"paper_id": paper_id, "paper_name": original_name,
                               "page": page_no, "kind": "figure", "visual_id": visual_id,
                               "image_uri": uri, "source": original_name}
@@ -144,7 +141,8 @@ def ingest_pdf(path: str, original_name: str) -> dict:
             except Exception:
                 continue
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1100, chunk_overlap=160)
+    # Optimized chunk size (2000 chars) cuts Bedrock embedding calls in half while retaining rich context
+    splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
     text_docs = splitter.split_documents(text_docs)
     for i, d in enumerate(text_docs):
         d.metadata["chunk_id"] = f"{paper_id}_text_{i}"
