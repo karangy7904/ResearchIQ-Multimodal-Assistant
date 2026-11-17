@@ -177,4 +177,4 @@ Exposes the tool: `search_research_papers(question)` for external AI agents.
 2. **Dense Semantic Embeddings vs Hybrid BM25:**  
    The current ChromaDB index relies on Amazon Titan v2 dense embeddings (1024-d). Combining this with BM25 sparse keyword search via hybrid reciprocal rank fusion (RRF) would further improve rare technical acronym recall.
 3. **Dual-Resolution OCR for Figures:**  
-   Very small sub-diagram annotations benefit from bounding-box OCR pre-parsing before feeding into vision models.
+   Very small sub-diagram annotations that benefit from bounding-box OCR pre-parsing before feeding into vision models.
