@@ -32,7 +32,13 @@ def _evidence_text(state):
     return "\n\n".join(parts)[:26000]
 
 def visual_analysis_node(state: ResearchState):
-    return {"visual_analysis": analyze_retrieved_figures(state.get("figure_evidence", []))}
+    intent = state.get("intent", "research")
+    q = state.get("question", "").lower()
+    needs_vision = intent == "visual" or any(w in q for w in ["figure", "diagram", "chart", "plot", "table", "architecture", "visual", "image", "graph", "trend"])
+    figures = state.get("figure_evidence", [])
+    if not needs_vision or not figures:
+        return {"visual_analysis": "Visual image inspection skipped for non-visual query."}
+    return {"visual_analysis": analyze_retrieved_figures(figures[:1])}
 
 def crew_executor(state: ResearchState):
     evidence = _evidence_text(state)

@@ -43,54 +43,26 @@ def _run_crewai_native(question: str, evidence: str) -> str:
     return str(crew.kickoff())
 
 def _run_crew_direct_bedrock(question: str, evidence: str) -> str:
-    """Sequential 4-agent persona execution on Amazon Bedrock."""
+    """Fast unified Multi-Persona Research Crew execution on Amazon Bedrock."""
     llm = get_llm()
-    
-    # 1. Researcher Persona
-    p1 = (
-        "You are the Researcher agent. Academic research analyst.\n"
-        f"Question: {question}\n"
-        f"Evidence:\n{evidence}\n"
-        "Extract claims, methods, results and limitations. Cite paper/page metadata. Never invent facts."
+    prompt = (
+        "You are the ResearchIQ Multi-Agent Research Crew consisting of four collaborative personas:\n"
+        "1. [Researcher]: Extracts core methodology, empirical results, and cited metrics.\n"
+        "2. [Visual Analyst]: Analyzes table/diagram findings and notes visual limitations.\n"
+        "3. [Comparative Analyst]: Compares supported findings across papers normalizing settings.\n"
+        "4. [Research Synthesizer]: Synthesizes clear takeaways, distinguishing evidence from hypotheses.\n\n"
+        f"Question: {question}\n\n"
+        f"Retrieved Evidence Records:\n{evidence[:12000]}\n\n"
+        "Produce your collaborative analysis structured with these sections:\n"
+        "### 1. Research Findings & Methodology\n"
+        "### 2. Visual & Tabular Analysis\n"
+        "### 3. Cross-Paper Comparison & Trade-offs\n"
+        "### 4. Synthesis & Research Insights\n"
+        "Cite every claim with [paper_name, p. N]. Be direct, precise, and factual."
     )
-    r1 = llm.invoke(p1).content
-    t1_out = " ".join(str(x) for x in r1) if isinstance(r1, list) else str(r1)
-    
-    # 2. Visual Analyst Persona
-    p2 = (
-        "You are the Visual Analyst agent. You distinguish extracted text from uncertain visual interpretation.\n"
-        f"Question: {question}\n"
-        f"Evidence:\n{evidence}\n"
-        f"Researcher findings:\n{t1_out}\n"
-        "Analyze tables/figures and note uncertainty. Do not infer unreadable values. Note what needs original-image inspection."
-    )
-    r2 = llm.invoke(p2).content
-    t2_out = " ".join(str(x) for x in r2) if isinstance(r2, list) else str(r2)
-
-    # 3. Comparative Analyst Persona
-    p3 = (
-        "You are the Comparative Analyst agent. Normalize metrics, datasets and settings before comparing.\n"
-        f"Question: {question}\n"
-        f"Researcher findings:\n{t1_out}\n"
-        f"Visual findings:\n{t2_out}\n"
-        "Compare supported findings across papers only where evidence supports a fair comparison."
-    )
-    r3 = llm.invoke(p3).content
-    t3_out = " ".join(str(x) for x in r3) if isinstance(r3, list) else str(r3)
-
-    # 4. Research Synthesizer Persona
-    p4 = (
-        "You are the Research Synthesizer agent. Literature review specialist.\n"
-        f"Question: {question}\n"
-        f"Researcher findings:\n{t1_out}\n"
-        f"Visual findings:\n{t2_out}\n"
-        f"Comparative findings:\n{t3_out}\n"
-        "Produce a concise synthesis; clearly separate supported findings from hypotheses and future directions."
-    )
-    r4 = llm.invoke(p4).content
-    t4_out = " ".join(str(x) for x in r4) if isinstance(r4, list) else str(r4)
-
-    return f"### Research Synthesis (Multi-Agent Team)\n\n{t4_out}\n\n**Agent Breakdown:**\n- **Researcher:** {t1_out[:300]}...\n- **Comparative Analyst:** {t3_out[:300]}..."
+    r = llm.invoke(prompt).content
+    crew_output = " ".join(str(x) for x in r) if isinstance(r, list) else str(r)
+    return f"### Research Synthesis (Multi-Agent Team)\n\n{crew_output}"
 
 def run_research_crew(question: str, evidence: str) -> str:
     try:

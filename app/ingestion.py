@@ -56,6 +56,23 @@ def ingest_pdf(path: str, original_name: str) -> dict:
         if doc:
             text_docs.append(doc)
 
+        # Fast C++ table extraction via PyMuPDF
+        try:
+            tabs = page.find_tables()
+            for table_idx, tab in enumerate(tabs, start=1):
+                rows = [" | ".join(str(c or "") for c in row) for row in tab.extract()]
+                content = "\n".join(rows).strip()
+                if content:
+                    table_docs.append(Document(
+                        page_content=f"Extracted Table {table_idx} (Page {page_no}, {original_name}):\n{content}",
+                        metadata={"paper_id": paper_id, "paper_name": original_name,
+                                  "page": page_no, "kind": "table",
+                                  "table_id": f"p{page_no}_table{table_idx}",
+                                  "source": original_name}
+                    ))
+        except Exception:
+            pass
+
         # Extract embedded figures/images; retain page-level provenance.
         for img_idx, img in enumerate(page.get_images(full=True), start=1):
             xref = img[0]
@@ -87,24 +104,6 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                 ))
             except Exception:
                 continue
-
-    # Table extraction as page-scoped text with Cohere table embeddings
-    with pdfplumber.open(path) as pdfp:
-        for page_idx, page in enumerate(pdfp.pages):
-            try:
-                for table_idx, table in enumerate(page.extract_tables() or [], start=1):
-                    rows = [" | ".join(str(c or "") for c in row) for row in table]
-                    content = "\n".join(rows).strip()
-                    if content:
-                        table_docs.append(Document(
-                            page_content=f"Extracted Table {table_idx} (Page {page_idx+1}, {original_name}):\n{content}",
-                            metadata={"paper_id": paper_id, "paper_name": original_name,
-                                      "page": page_idx+1, "kind": "table",
-                                      "table_id": f"p{page_idx+1}_table{table_idx}",
-                                      "source": original_name}
-                        ))
-            except Exception:
-                pass
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1100, chunk_overlap=160)
     text_docs = splitter.split_documents(text_docs)

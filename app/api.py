@@ -32,6 +32,21 @@ async def upload_paper(file: UploadFile = File(...)):
     result = ingest_pdf(path, file.filename)
     return {"status": "indexed", **result}
 
+@app.post("/upload-batch")
+async def upload_papers_batch(files: list[UploadFile] = File(...)):
+    results = []
+    for file in files:
+        if not file.filename.lower().endswith(".pdf"):
+            continue
+        data = await file.read()
+        if len(data) > settings.max_upload_mb * 1024 * 1024:
+            continue
+        paper_id = uuid.uuid4().hex[:10]
+        path = save_upload(data, file.filename, paper_id)
+        result = ingest_pdf(path, file.filename)
+        results.append(result)
+    return {"status": "indexed_batch", "papers_count": len(results), "papers": results}
+
 @app.post("/ask")
 async def ask(req: AskRequest):
     result = await ask_researchiq(req.question)
