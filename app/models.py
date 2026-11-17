@@ -2,6 +2,7 @@ from typing import Any, TypedDict
 
 class ResearchState(TypedDict, total=False):
     question: str
+    session_id: str
     intent: str
     plan: str
     paper_ids: list[str]

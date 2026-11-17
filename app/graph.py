@@ -1,4 +1,5 @@
 import asyncio, json 
+from typing import Optional
 from langgraph.graph import StateGraph, START, END
 from app.models import ResearchState
 from app.clients import get_llm
@@ -22,7 +23,7 @@ def query_planner(state: ResearchState):
     return {"plan": f"Intent={state.get('intent','research')}; retrieve text, tables and figures; synthesize; review; verify citations."}
 
 def retrieval_dispatcher(state: ResearchState):
-    return retrieve_all(state["question"])
+    return retrieve_all(state["question"], session_id=state.get("session_id"))
 
 def _evidence_text(state):
     parts = []
@@ -122,10 +123,10 @@ def build_graph():
 
 research_graph = build_graph()
 
-async def ask_researchiq(question: str):
-    return await research_graph.ainvoke({"question": question, "errors": []})
+async def ask_researchiq(question: str, session_id: Optional[str] = None):
+    return await research_graph.ainvoke({"question": question, "session_id": session_id, "errors": []})
 
-def ask_researchiq_stream(question: str):
+def ask_researchiq_stream(question: str, session_id: Optional[str] = None):
     """Sub-3-second streaming grounded synthesizer using concurrent retrieval and live token streaming."""
     ok, reason = input_guardrail(question)
     if not ok:
@@ -133,7 +134,7 @@ def ask_researchiq_stream(question: str):
         return
 
     yield "🔍 *Retrieving cross-paper text (Titan v2), tables (Cohere Embed v3), and diagrams (Nova Multimodal)...*", "Retriever active..."
-    retrieval = retrieve_all(question)
+    retrieval = retrieve_all(question, session_id=session_id)
     all_items = retrieval.get("text_evidence", []) + retrieval.get("table_evidence", []) + retrieval.get("figure_evidence", [])
     if not all_items:
         yield "⚠️ **Insufficient Evidence:** No relevant content found across the indexed papers. Please upload papers on this topic.", "No matching records in vectorstore."

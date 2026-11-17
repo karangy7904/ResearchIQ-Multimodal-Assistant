@@ -44,17 +44,21 @@ def describe_figure_with_nova(image_path: str, page_no: int, paper_name: str) ->
     except Exception as exc:
         return f"Visual diagram on page {page_no} of {paper_name}."
 
-def ingest_pdf(path: str, original_name: str) -> dict:
+def ingest_pdf(path: str, original_name: str, session_id: str = None) -> dict:
     ensure_dirs()
     paper_id = _paper_id(path)
     text_docs, table_docs, figure_docs = [], [], []
     pdf = fitz.open(path)
     for page_idx, page in enumerate(pdf):
         page_no = page_idx + 1
-        doc = _make_doc(page.get_text("text"), {
+        meta = {
             "paper_id": paper_id, "paper_name": original_name,
             "page": page_no, "kind": "text", "source": original_name
-        })
+        }
+        if session_id:
+            meta["session_id"] = session_id
+
+        doc = _make_doc(page.get_text("text"), meta)
         if doc:
             text_docs.append(doc)
 
@@ -70,8 +74,16 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                 if not content:
                     continue
 
+                table_meta = {
+                    "paper_id": paper_id, "paper_name": original_name,
+                    "page": page_no, "kind": "table",
+                    "table_id": f"p{page_no}_table{table_idx}",
+                    "source": original_name
+                }
+                if session_id:
+                    table_meta["session_id"] = session_id
+
                 # Cohere Embed v3 enforces a strict 2048 character limit per document.
-                # If table is large, chunk it by rows while preserving table header context.
                 if len(content) > 1800:
                     header = rows[0] if rows else ""
                     current_chunk = [f"Extracted Table {table_idx} (Page {page_no}, {original_name}) [Header: {header}]:"]
@@ -80,10 +92,7 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                         if current_len + len(row) + 1 > 1800:
                             table_docs.append(Document(
                                 page_content="\n".join(current_chunk)[:1900],
-                                metadata={"paper_id": paper_id, "paper_name": original_name,
-                                          "page": page_no, "kind": "table",
-                                          "table_id": f"p{page_no}_table{table_idx}",
-                                          "source": original_name}
+                                metadata=dict(table_meta)
                             ))
                             current_chunk = [f"Extracted Table {table_idx} cont. (Page {page_no}, {original_name}) [Header: {header}]:", row]
                             current_len = sum(len(x) for x in current_chunk) + len(current_chunk)
@@ -93,18 +102,12 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                     if len(current_chunk) > 1:
                         table_docs.append(Document(
                             page_content="\n".join(current_chunk)[:1900],
-                            metadata={"paper_id": paper_id, "paper_name": original_name,
-                                      "page": page_no, "kind": "table",
-                                      "table_id": f"p{page_no}_table{table_idx}",
-                                      "source": original_name}
+                            metadata=dict(table_meta)
                         ))
                 else:
                     table_docs.append(Document(
                         page_content=f"Extracted Table {table_idx} (Page {page_no}, {original_name}):\n{content}",
-                        metadata={"paper_id": paper_id, "paper_name": original_name,
-                                  "page": page_no, "kind": "table",
-                                  "table_id": f"p{page_no}_table{table_idx}",
-                                  "source": original_name}
+                        metadata=dict(table_meta)
                     ))
         except Exception:
             pass
@@ -122,7 +125,9 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                     continue
 
                 visual_id = f"p{page_no}_img{img_idx}"
-                image_path = str(Path(settings.upload_dir) / f"{paper_id}_{visual_id}.png")
+                dest_dir = Path(settings.upload_dir) / session_id if session_id else Path(settings.upload_dir)
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                image_path = str(dest_dir / f"{paper_id}_{visual_id}.png")
                 pix.save(image_path)
                 uri = upload_visual(image_path, paper_id, visual_id)
 
@@ -132,11 +137,17 @@ def ingest_pdf(path: str, original_name: str) -> dict:
                     f"Multimodal architecture/data diagram available locally for visual inspection."
                 )
                 
+                fig_meta = {
+                    "paper_id": paper_id, "paper_name": original_name,
+                    "page": page_no, "kind": "figure", "visual_id": visual_id,
+                    "image_uri": uri, "source": original_name
+                }
+                if session_id:
+                    fig_meta["session_id"] = session_id
+
                 figure_docs.append(Document(
                     page_content=visual_summary,
-                    metadata={"paper_id": paper_id, "paper_name": original_name,
-                              "page": page_no, "kind": "figure", "visual_id": visual_id,
-                              "image_uri": uri, "source": original_name}
+                    metadata=fig_meta
                 ))
             except Exception:
                 continue
@@ -182,21 +193,25 @@ def ingest_pdf(path: str, original_name: str) -> dict:
     else:
         fig_embeds, fig_texts, fig_metas, fig_ids = [], [], [], []
 
+    col_text = f"text_{session_id}" if session_id else "researchiq_text"
+    col_tables = f"tables_{session_id}" if session_id else "researchiq_tables"
+    col_figures = f"figures_{session_id}" if session_id else "researchiq_figures"
+
     # Fast thread-safe local SQLite writes (only held for <50ms per paper)
     with _CHROMA_LOCK:
         if text_embeds:
-            Chroma(collection_name="researchiq_text", persist_directory=settings.chroma_dir)._collection.upsert(
+            Chroma(collection_name=col_text, persist_directory=settings.chroma_dir)._collection.upsert(
                 ids=text_ids, embeddings=text_embeds, metadatas=text_metas, documents=text_texts
             )
         if table_embeds:
-            Chroma(collection_name="researchiq_tables", persist_directory=settings.chroma_dir)._collection.upsert(
+            Chroma(collection_name=col_tables, persist_directory=settings.chroma_dir)._collection.upsert(
                 ids=table_ids, embeddings=table_embeds, metadatas=table_metas, documents=table_texts
             )
         if fig_embeds:
-            Chroma(collection_name="researchiq_figures", persist_directory=settings.chroma_dir)._collection.upsert(
+            Chroma(collection_name=col_figures, persist_directory=settings.chroma_dir)._collection.upsert(
                 ids=fig_ids, embeddings=fig_embeds, metadatas=fig_metas, documents=fig_texts
             )
 
-    return {"paper_id": paper_id, "paper_name": original_name,
+    return {"paper_id": paper_id, "paper_name": original_name, "session_id": session_id,
             "text_chunks": len(text_docs), "tables": len(table_docs),
             "figures": len(figure_docs)}
