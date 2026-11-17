@@ -43,13 +43,16 @@ jobs:
 
       - name: Run Unit Tests
         env:
+          PYTHONPATH: .
           AWS_DEFAULT_REGION: ap-southeast-2
           AWS_REGION: ap-southeast-2
+          AWS_ACCESS_KEY_ID: mock-access-key
+          AWS_SECRET_ACCESS_KEY: mock-secret-key
           BEDROCK_CHAT_MODEL: apac.amazon.nova-pro-v1:0
           BEDROCK_EMBED_MODEL: amazon.titan-embed-text-v2:0
           BEDROCK_TABLE_EMBED_MODEL: cohere.embed-english-v3
         run: |
-          pytest tests/ -v
+          python -m pytest tests/ -v
 
   build-and-push:
     name: 🐳 Docker Build & Publish to GHCR
